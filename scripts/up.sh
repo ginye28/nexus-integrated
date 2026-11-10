@@ -17,7 +17,7 @@ chmod +x portal/db/init.sh
 
 # 3) 컨테이너 빌드·기동 (공격 PC 는 시연할 때 attack.sh 가 켠다)
 docker compose build portal
-docker compose up -d
+docker compose up -d || { echo '일부 컨테이너 시작이 늦어 한 번 더 시도합니다...'; sleep 15; docker compose up -d; }
 
 # 4) 준비될 때까지 대기
 echo "포털 대기..."

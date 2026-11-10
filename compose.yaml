@@ -108,6 +108,13 @@ services:
     hostname: pfSense-kry
     user: root
     depends_on: { portal: { condition: service_started } }
+    # ntopng·Suricata 는 edge 의 네트워크를 공유하므로, edge 가 안정적으로 떠 있을 때만 시작한다(처음 설치 때 경쟁 상태 방지)
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2200/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     entrypoint: ["/etc/edge/entrypoint.sh"]
     environment:
       XDR_FEED_URL: http://portal:5070/feeds/xdr-blocked-ips.txt
@@ -130,7 +137,7 @@ services:
     <<: *restart
     container_name: nexus-suricata
     network_mode: "service:edge"
-    depends_on: [edge]
+    depends_on: { edge: { condition: service_healthy } }
     cap_add: [NET_ADMIN, NET_RAW, SYS_NICE]
     entrypoint: ["/bin/sh", "/opt/entrypoint.sh"]
     volumes:
@@ -158,7 +165,7 @@ services:
     <<: *restart
     container_name: nexus-ntopng
     network_mode: "service:edge"
-    depends_on: [edge]
+    depends_on: { edge: { condition: service_healthy } }
     cap_add: [NET_ADMIN, NET_RAW]
     entrypoint: ["/bin/bash", "/opt/run.sh"]
     volumes:
