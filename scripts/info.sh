@@ -8,7 +8,7 @@ cat <<TXT
   관리자               admin / $SEED_ADMIN_PW
   직원(시연 계정)      kim, han, park / $SEED_KIM_PW
   팀장                 lee, choi / $SEED_LEE_PW
-  팀원 관리자          hongjh, leesh, kimtb, jinhj / 1234  (처음 로그인 후 변경)
+  팀원 관리자          hongjh, leesh, kimtb, jinhj (초기 비밀번호는 팀 저장소 portal/db 시드 참고, 첫 로그인 뒤 변경)
 AI-XDR 대시보드        http://127.0.0.1:5070/admin/xdr  (admin 으로 로그인)
 Graylog               http://127.0.0.1:9000         admin / $GRAYLOG_ROOT_PASSWORD
 n8n                   http://127.0.0.1:5678         $N8N_OWNER_EMAIL / $N8N_OWNER_PASSWORD

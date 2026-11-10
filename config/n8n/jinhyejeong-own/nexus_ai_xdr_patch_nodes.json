@@ -1,0 +1,53 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"openai/gpt-oss-120b\", response_format: { type: \"json_object\" }, messages: [ { role: \"system\", content: \"너는 NEXUS 포털의 보안 관제 AI 분석가다. 전달되는 Graylog 이벤트(rule/alert/event/decision/response_group)를 보고 공격 의도인지 정상 사용자 행동인지 판정하라. 오탐 가능성(단순 오타, 일시적 오류)을 반드시 고려하라. 반드시 JSON 객체 하나로만 답하라: {assessment_id, attacker_ip, attack_type, threat_score(0-100 정수), confidence(0-1), verdict(MALICIOUS|SUSPICIOUS|BENIGN), reasoning, matched_rules(배열), recommended_actions(배열)}\" }, { role: \"user\", content: JSON.stringify({ rule: $json.rule, alert: $json.alert, event: $json.event, decision: $json.decision, response_group: $json.response_group }) } ] }) }}",
+        "options": {}
+      },
+      "id": "ai-xdr-0001",
+      "name": "AI 심층 판정 호출(Groq)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [448, 400],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "__GROQ_API_KEY_CRED_ID__",
+          "name": "Groq API Key (교체 필요)"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('정규화·대응 계획').first().json;\nconst resp = $input.first().json || {};\nlet ai = {};\ntry {\n  const content = resp.choices?.[0]?.message?.content || '{}';\n  ai = JSON.parse(content);\n} catch (e) {\n  ai = { threat_score: 0, verdict: 'ERROR', reasoning: 'AI 응답 파싱 실패: ' + e.message };\n}\nconst now = new Date();\nconst kstHour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', hour: 'numeric', hourCycle: 'h23' }).format(now));\nconst isDaytime = kstHour >= 8 && kstHour < 20;\nconst threatScore = Number.isFinite(Number(ai.threat_score)) ? Number(ai.threat_score) : 0;\nconst autoLive = !isDaytime && threatScore >= 80;\nreturn [{ json: { ...base,\n  ai_assessment: ai, ai_threat_score: threatScore, ai_verdict: ai.verdict || 'UNKNOWN',\n  kst_hour: kstHour, is_daytime: isDaytime,\n  response_mode: autoLive ? 'live' : 'dry-run', live_enabled: autoLive,\n  pending_approval: isDaytime && base.auto_response_allowed === true\n} }];"
+      },
+      "id": "ai-xdr-0002",
+      "name": "Time-Gate·자동집행 판정",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [672, 400]
+    }
+  ],
+  "connections": {
+    "AI 심층 판정 호출(Groq)": {
+      "main": [
+        [
+          { "node": "Time-Gate·자동집행 판정", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  }
+}

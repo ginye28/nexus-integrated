@@ -1,0 +1,28 @@
+{
+  "scenario": "scan",
+  "desc": "스캐너 User-Agent 4종 (Suricata 경보)",
+  "started": "2026-11-10T16:18:06",
+  "steps": {
+    "0_사전": {
+      "공격PC 포털 접속 코드": "200",
+      "알림 건수": 46,
+      "평가 건수": 23
+    },
+    "1_공격": {
+      "소요(초)": 4.2,
+      "출력": [
+        "스캐너 UA 요청 -> 200 sqlmap/1.7.2#stable (https://sqlmap.org)",
+        "스캐너 UA 요청 -> 200 Mozilla/5.0 (compatible; Nmap Scripting ",
+        "스캐너 UA 요청 -> 200 masscan/1.3 (https://github.com/robertda"
+      ]
+    },
+    "2_탐지": {
+      "Graylog suricata 메시지(최근 5분)": 2,
+      "경과(초)": 4.3
+    },
+    "5_복구": {
+      "공격PC 포털 접속 코드": "200",
+      "소요(초)": 8.2
+    }
+  }
+}

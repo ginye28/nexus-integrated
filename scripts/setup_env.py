@@ -32,7 +32,6 @@ defaults = {
     "DISCORD_WEBHOOK_URL": "",
 }
 new = {**defaults, **{k: v for k, v in cur.items() if v != "" or k not in defaults}}
-new.update({k: v for k, v in cur.items()})  # 기존 값 우선
 demo = new.get("NEXUS_XDR_MODE", "demo") == "demo"
 new["XDR_RESPONSE_MODE"] = "live" if demo else "dry-run"
 new["XDR_IP_BLOCK_ENABLED"] = "1" if demo else "0"

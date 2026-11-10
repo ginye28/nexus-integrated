@@ -1,23 +1,70 @@
-# NEXUS WORK 통합 구동 환경
+# NEXUS WORK — 진혜정 개인 포트폴리오 저장소
 
-팀 4명이 따로 만든 구성(포털·pfSense·Graylog·n8n·AI-XDR)을 **이 노트북 한 대**에서 같은 흐름으로 돌리는 Docker 환경입니다.
+> 사내 업무 포털(그룹웨어·ERP·AI 챗봇)을 공격에서 지키는 **탐지 → 자동 대응(SOAR) → AI 판정(AI-XDR)** 팀 프로젝트(4조)를, 노트북 한 대의 Docker 로 **혼자 설치·실행·재현·수정**할 수 있게 만든 통합 환경입니다.
 
+| | |
+|---|---|
+| **팀 원본 저장소** | https://github.com/stulss/nexus-work (포털 코드·재현 패키지. 이 저장소는 설치 때 이 주소를 내려받아 씁니다) |
+| **팀원** | 진혜정(팀장) · 홍주형(부팀장) · 이시헌 · 김태빈 |
+| **프로젝트 기간** | 2026-10-19 ~ 2026-11-06 (활동일지 기준, 리허설 11/5, 본발표 11/6) · 통합 환경 정리 11/9~11/10 |
+| **본인 역할** | **진혜정 — 팀장 · 역할 D (자동화·상황판)**: n8n 자동 대응 워크플로(계정 잠금·강제 로그아웃·티켓 4종·화이트리스트·해제 절차), 공격 시연(Kali), 통합 점검 주관, 기획서·문서 정리, AI-XDR 판정·시간대 정책(Time-Gate) 설계와 Groq 모델 교체 |
+| **이 저장소에서 한 일** | 팀 4명의 구성(포털·pfSense·Graylog·Wazuh·Suricata·ntopng·n8n·AI-XDR·Discord)을 한 대에서 같은 흐름으로 돌리는 Docker 환경, 시나리오 재현·실측 스크립트, 점검·시험 스크립트, 유지보수 가이드 |
+
+- 팀원별 상세 기여와 근거 → [docs/CONTRIBUTIONS.md](docs/CONTRIBUTIONS.md)
+- 시나리오 재현 절차·실측 결과 → [docs/SCENARIOS.md](docs/SCENARIOS.md)
+- 문제 → 원인 → 해결, 개선점, 느낀 점 → [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md)
+- 이력서 프로젝트 항목·자기소개서 문단 → [docs/portfolio/](docs/portfolio/)
+- 팀원 코드·자료는 출처(이름)를 표시했고, `config/`·`portal/` 안의 파일은 팀 저장소의 것입니다.
+- 이 저장소에는 비밀번호·API 키·토큰·웹훅 주소가 없습니다. 실제 값은 `.env`(커밋 제외)에만 있고, 항목 목록은 [.env.example](.env.example) 입니다.
+
+## 처음부터 설치하기 (새 PC, 약 15분)
+
+**준비물**: macOS 또는 Linux(Windows 는 WSL2 + Docker Desktop), Docker Desktop(또는 Docker Engine + Compose v2), `git`, `python3`(3.9+), `curl`. Docker 에 **메모리 8GB 이상**을 주세요(Graylog·OpenSearch·Wazuh 때문). 빈 포트: 5070, 5678, 9000, 3307, 3000, 8080, 2200.
+
+```bash
+git clone https://github.com/ginye28/nexus-integrated.git
+cd nexus-integrated
+./scripts/up.sh          # ① 팀 포털 코드 내려받기 ② .env 생성(비밀값 무작위) ③ 이미지 빌드·기동 ④ Graylog 규칙·n8n 워크플로 자동 적용 (처음 5~10분)
+./scripts/info.sh        # 접속 주소와 계정 보기 (비밀번호는 .env 에서 읽어 화면에만 표시)
+./scripts/verify.sh      # 설치 확인: 응답 6개 + 공격 1회가 알림 DB 에 도착하는지 → "통과 7 / 실패 0"
 ```
-공격 PC ──wan 192.168.3.0/24──▶ edge(pfSense 역할, :5070) ──lan 172.16.50.0/24──▶ 포털(Flask, AI-XDR)
- 192.168.3.11                    HAProxy + 차단 목록 + 로그 전송            │  └─ MySQL (티켓·평가·차단 IP)
-                                      │ syslog                              │ GELF
-                                      └──────────────▶ Graylog ◀───────────┘
-                                                         │ R1~R12 탐지 → HTTP 알림
-                                                         ▼
-                                                n8n(웹훅 → 티켓 → 3분 집계 → AI-XDR /events·/process)
-                                                         ▼
-                                      관리자 승인 → 차단 IP 피드 ──(5초마다 동기화)──▶ edge 가 해당 IP 를 403 차단
+
+선택 설정(없어도 대부분 동작): `.env` 의 `GROQ_API_KEY`(AI 판정 강화, https://console.groq.com 무료), `DISCORD_WEBHOOK_URL`(Discord 알림). 한 줄만 고친 뒤 `docker compose up -d portal` 과 `python3 n8n/bootstrap_n8n.py`.
+**.env 를 파일째 덮어쓰지 마세요**(DB·Graylog 비밀번호가 사라집니다).
+
+### 구성별 실행·주소·기본 설정
+
+| 구성 | 실행 명령 | 접속 주소·포트 | 기본 설정(자동 적용) |
+|---|---|---|---|
+| 서버(웹·DB) | `docker compose up -d mysql portal` | 포털 `http://127.0.0.1:5070` (경계 장비 경유), DB `127.0.0.1:3307` | 시드 계정·테이블은 `portal/db/init.sh`, 비밀번호는 `.env` |
+| pfSense 역할(경계) | `docker compose up -d edge pfsense-ui` | HAProxy 통계 `:2200`, pfSense 스타일 화면 `:8080` | 차단 순서 GeoBlock → 위협목록 → 포털 피드 → 자동차단, 설정은 `edge/`·`pfsense-ui/config.json` |
+| 진짜 pfSense (선택) | `pfsense-vm/run-restored.sh` | `https://127.0.0.1:8443` | QEMU 에뮬레이션, 설치·설정 복원 방법은 [pfsense-vm/README.md](pfsense-vm/README.md) (Docker 와 미연결) |
+| Graylog2 | `docker compose up -d mongo opensearch graylog` → `python3 graylog/import_graylog.py` | `http://127.0.0.1:9000` (admin / `.env`) | GELF·Syslog 입력, Stream 3개, 탐지 규칙 R1~R12, n8n 알림 — 원본 `config/graylog/` |
+| Wazuh | `docker compose up -d wazuh-manager` | 매니저 컨테이너(에이전트는 포털 컨테이너 안) | FIM 소스·업로드 폴더, 경보 → Graylog UDP 5140 — `wazuh/ossec.conf`, `config/wazuh/` |
+| Suricata / ntopng | `docker compose up -d suricata ntopng` | ntopng `http://127.0.0.1:3000` | ET Open 규칙, 경보 → Graylog syslog 1514 |
+| n8n | `docker compose up -d n8n` → `python3 n8n/bootstrap_n8n.py` | `http://127.0.0.1:5678` (`.env` 의 계정) | 소유자·연결 정보·v3 워크플로 가져오기+게시, 웹훅 `/webhook/nexus-alert` (헤더 `x-webhook-token`) — 원본 `config/n8n/` |
+| 공격 PC | `./scripts/attack.sh r8 \| r1 \| r2 \| r3 \| scan` | 192.168.3.11 컨테이너 | Kali 대신 파이썬 컨테이너(출처 IP 분리용) |
+
+종료·초기화: `./scripts/down.sh`(데이터 유지) / `./scripts/reset.sh`(전부 삭제).
+
+### 직접 확인해 보기 (선생님 확인용 1~2개 시나리오)
+
+```bash
+python3 scripts/scenario.py r8                # 404 경로 스캔 → 탐지 → n8n → AI-XDR 평가 → 복구  (약 2분)
+python3 scripts/scenario.py r3 --approve      # AI 기밀 문서 요청 → 탐지 → AI 판정 → 관리자 승인 → 공격 PC 403 차단 → 복구 (약 3분)
 ```
+
+### 혼자서는 하지 않은 것 (예외)
+
+- **R1 의심 계정 잠금(관리자 승인 → 계정 잠금)**: 팀원(관리자) 협업이 필요한 승인 경로라 이 저장소에서는 SQL·권한까지만 확인했습니다.
+- **서버 3대(.10/.14/.15) 분리 배치, 실제 Kali·Windows 에이전트**: 팀 장비가 필요해 한 대의 컨테이너로 대체했습니다(Wazuh 윈도우 이벤트는 제외).
+- **진짜 pfSense 와 Docker 연결·패키지 동작**: VM 은 따로 부팅·설정 복원까지만 확인했습니다.
+
+---
 
 ## 시작하기
 
 ```bash
-cd ~/Documents/nexus-integrated
 ./scripts/up.sh        # 처음에는 5~10분 (이미지 내려받기·빌드). 끝나면 접속 정보가 출력됩니다
 ./scripts/info.sh      # 접속 주소·계정 다시 보기
 ```
@@ -35,7 +82,7 @@ cd ~/Documents/nexus-integrated
 
 ```bash
 ./scripts/attack.sh r8    # 404 경로 스캔 35회        → Graylog R8 경보 → n8n 티켓
-./scripts/attack.sh r1    # han 로그인 6회 실패(잠금)  → R1
+./scripts/attack.sh r1    # han 로그인 6회 실패(잠금)  → R1(계정 침해 의심)·R6(잠금 후 재시도)
 ./scripts/attack.sh r2    # 챗봇 프롬프트 인젝션       → R2 (포털이 즉시 차단 403)
 ./scripts/attack.sh r3    # 기밀 문서 AI 요청 3회      → R3·R11 (Groq 키 필요)
 ./scripts/attack.sh scan  # 스캐너 UA(Nikto·sqlmap·Nmap)  → Suricata 경보

@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 
 # 1) Docker Desktop 확인(꺼져 있으면 켠다)
 if ! docker info >/dev/null 2>&1; then
-  echo "Docker Desktop 을 켭니다..."; open -a Docker
+  if [ "$(uname)" = Darwin ]; then echo "Docker Desktop 을 켭니다..."; open -a Docker; fi
   for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 3; done
 fi
 docker info >/dev/null 2>&1 || { echo "Docker 가 켜지지 않았습니다. Docker Desktop 을 직접 실행한 뒤 다시 시도하세요."; exit 1; }

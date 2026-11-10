@@ -1,0 +1,202 @@
+{
+  "name": "NEXUS 탐지 알림 수신",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nexus-alert",
+        "options": {}
+      },
+      "id": "a1f0c0de-0001-4000-8000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "a1f0c0de-0001-4000-8000-0000000000aa"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.headers['x-webhook-token'] }}",
+              "rightValue": "={{ $env.WEBHOOK_TOKEN }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1f0c0de-0002-4000-8000-000000000002",
+      "name": "토큰 확인",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        220,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body || {};\nconst plan = {\n  R1: { actions: ['계정 잠금', 'Discord 알림', '티켓 생성'], ticket: '차단 조치' },\n  R2: { actions: ['Discord 알림', '티켓 생성'], ticket: '이상 징후 경보' },\n  R3: { actions: ['세션 종료', 'AI Tool 제한', 'Discord 알림', '티켓 생성'], ticket: '침해 인시던트' },\n  R4: { actions: ['내부 API 토큰 폐기', 'Discord 알림', '티켓 생성'], ticket: '침해 인시던트' },\n}[b.rule_id] || { actions: ['Discord 알림'], ticket: '이상 징후 경보' };\nconst message = `[${b.rule_id}] ${b.rule_name} | 출발지 ${b.src_ip} | 계정 ${b.user || '-'} | ${b.count}건 | 대응 예정: ${plan.actions.join(', ')}`;\nreturn [{ json: {\n  rule_id: b.rule_id, rule_name: b.rule_name, severity: b.severity,\n  src_ip: b.src_ip, user: b.user || '', count: b.count,\n  first_seen: b.first_seen, last_seen: b.last_seen,\n  graylog_event_id: b.graylog_event_id || '',\n  ticket_type: plan.ticket, ticket_key: b.src_ip,\n  actions: plan.actions, message,\n  discord_enabled: !!$env.DISCORD_WEBHOOK_URL,\n} }];"
+      },
+      "id": "a1f0c0de-0003-4000-8000-000000000003",
+      "name": "정규화·대응 계획",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.discord_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1f0c0de-0004-4000-8000-000000000004",
+      "name": "Discord 설정됨?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        660,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({content: $json.message}) }}",
+        "options": {}
+      },
+      "id": "a1f0c0de-0005-4000-8000-000000000005",
+      "name": "Discord 알림",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        40
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a1f0c0de-0006-4000-8000-000000000006",
+      "name": "Discord 미설정(건너뜀)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        880,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a1f0c0de-0007-4000-8000-000000000007",
+      "name": "토큰 불일치(거부)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        440,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "토큰 확인",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "토큰 확인": {
+      "main": [
+        [
+          {
+            "node": "정규화·대응 계획",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "토큰 불일치(거부)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "정규화·대응 계획": {
+      "main": [
+        [
+          {
+            "node": "Discord 설정됨?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord 설정됨?": {
+      "main": [
+        [
+          {
+            "node": "Discord 알림",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discord 미설정(건너뜀)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
