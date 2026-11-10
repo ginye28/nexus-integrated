@@ -26,6 +26,8 @@
 | 13 | 계정 조치 SQL 이 권한 오류가 날 처지 | n8n 전용 DB 계정이 티켓 표 3개만 접근 가능 | `users` 표의 `locked_until`·`session_version` 컬럼만 SELECT/UPDATE 하도록 컬럼 단위 권한 부여 | 잠금 SQL 성공(롤백 확인), `password_hash` 는 읽기 거부 |
 | 14 | `.env.example` 을 복사해 쓰면 비밀번호가 빈 값 | `setup_env.py` 가 기존 빈 값으로 생성값을 덮어씀 | 덮어쓰는 줄 제거, 임시 폴더에서 재시험 | 빈 `.env` 에서도 무작위 값이 채워짐 |
 | 15 | 팀 자동 시험 14개 실패 | 팀 시험이 최신 코드(`/admin/api/incidents-live` 추가, 결재 체인 변경)를 따라가지 못함 | 팀 코드는 건드리지 않고 결과만 기록 | 1,562개 중 1,548개 통과 |
+| 16 | 새 PC 설치(깨끗한 clone)에서 `up.sh` 가 중간에 멈춤 | ntopng·Suricata 가 edge 의 네트워크를 공유하는데 edge 가 안정되기 전에 시작되어 `namespace path ... no such file` | edge 에 헬스체크를 추가하고 두 컨테이너가 edge healthy 일 때만 시작하도록 `depends_on` 조건 변경, `up.sh` 1회 재시도 | 깨끗한 설치에서 `up.sh` 완주, `verify.sh` 7/7 |
+| 17 | 키 없이 설치해도 AI 시나리오가 될 것처럼 문서에 적음 | Groq 키가 없으면 AI 에이전트가 도구를 호출하지 않아 R3·R11·R12 가 발생하지 않고, AI-XDR 은 판정 불가 | 깨끗한 설치로 직접 확인한 뒤 README·`.env.example` 에 "AI 시나리오는 Groq 키 필요"로 정정 | 문서와 실제 동작 일치 |
 
 ## 2. 리허설·본발표 피드백 반영
 

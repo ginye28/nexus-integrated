@@ -121,6 +121,17 @@
 
 캡처 다시 만들기: `pip install playwright && python3 scripts/capture.py` (Google Chrome 필요).
 
+## 새 PC 설치 시험 (2026-11-10)
+
+깨끗한 `git clone` → README 대로 `./scripts/up.sh` → `./scripts/verify.sh` (Groq 키·Discord 없이, 볼륨 분리):
+
+| 확인 | 결과 |
+|---|---|
+| `up.sh` 완주(이미지 빌드·기동·Graylog 규칙·n8n 워크플로 적용) | 성공 (첫 시도에서 ntopng·Suricata 시작 경쟁으로 중단 → 수정 후 성공, `docs/IMPROVEMENTS.md` #16) |
+| `verify.sh` | 통과 7 / 실패 0 (공격 → Graylog → n8n → 알림 DB 0→1건) |
+| `scenario.py r2` (키 없음) | Graylog R2 7초 → 알림 DB 9초 → AI-XDR `REVIEW_REQUIRED`(판정 불가) 24초 |
+| `scenario.py r3 --approve` (키 없음) | R3·R11 이 발생하지 않아 재현 불가 → **AI 시나리오는 Groq 키 필요** |
+
 ## 측정 방법과 한계
 
 - Graylog 규칙 발동 시각은 Graylog 이벤트 API 의 타임스탬프, 알림 DB 적재는 `security_incident_alerts` 에 새 행이 생긴 시각(2초 간격 확인)입니다.

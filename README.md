@@ -29,7 +29,7 @@ cd nexus-integrated
 ./scripts/verify.sh      # 설치 확인: 응답 6개 + 공격 1회가 알림 DB 에 도착하는지 → "통과 7 / 실패 0"
 ```
 
-선택 설정(없어도 대부분 동작): `.env` 의 `GROQ_API_KEY`(AI 판정 강화, https://console.groq.com 무료), `DISCORD_WEBHOOK_URL`(Discord 알림). 한 줄만 고친 뒤 `docker compose up -d portal` 과 `python3 n8n/bootstrap_n8n.py`.
+**Groq API 키(무료, https://console.groq.com)를 `.env` 의 `GROQ_API_KEY` 에 넣으면** AI 판정과 AI 시나리오가 완전히 동작합니다. 키가 없어도 설치·`verify.sh`·R1·R2·R8·스캐너·디코이 시나리오는 되지만, AI-XDR 은 `REVIEW_REQUIRED`(판정 불가)로 나오고 **R3·R11·R12(AI 에이전트 도구 거부)와 `r3 --approve` 시나리오는 재현되지 않습니다**(깨끗한 설치로 확인). Discord 알림은 `DISCORD_WEBHOOK_URL`(선택). 한 줄만 고친 뒤 `docker compose up -d portal` 과 `python3 n8n/bootstrap_n8n.py`.
 **.env 를 파일째 덮어쓰지 마세요**(DB·Graylog 비밀번호가 사라집니다).
 
 ### 구성별 실행·주소·기본 설정
