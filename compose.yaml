@@ -1,0 +1,259 @@
+# NEXUS WORK 통합 구동 — 노트북 한 대에서 팀이 만든 전체 구성을 재현한다.
+#   공격 PC(192.168.3.11) --wan--> 경계 장비 edge(pfSense 대체, 5070) --lan--> 포털 -> Graylog -> n8n -> AI-XDR
+name: nexus-integrated
+
+x-restart: &restart
+  restart: unless-stopped
+
+networks:
+  wan:
+    ipam: { config: [ { subnet: 192.168.3.0/24 } ] }
+  lan:
+    ipam: { config: [ { subnet: 172.16.50.0/24 } ] }
+
+volumes:
+  mysql_data: {}
+  portal_data: {}
+  mongo_data: {}
+  os_data: {}
+  graylog_data: {}
+  n8n_data: {}
+  suricata_rules: {}
+  edge_run: {}
+  suricata_logs: {}
+  ntopng_data: {}
+
+services:
+  # ---------- 데이터베이스 ----------
+  mysql:
+    image: mysql:8.4
+    <<: *restart
+    container_name: nexus-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      NEXUS_APP_PASSWORD: ${NEXUS_APP_PASSWORD}
+      NEXUS_CONF_PASSWORD: ${NEXUS_CONF_PASSWORD}
+      NEXUS_N8N_LOCAL_DB_PASSWORD: ${NEXUS_N8N_LOCAL_DB_PASSWORD}
+    command: ["--port=3307", "--local-infile=0", "--secure-file-priv=NULL"]
+    volumes:
+      - ./portal/db/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+      - ./mysql-init/20-n8n-local.sh:/docker-entrypoint-initdb.d/20-n8n-local.sh:ro
+      - ./portal/db/schema.sql:/seed/schema.sql:ro
+      - ./portal/db/grants.sql:/seed/grants.sql:ro
+      - mysql_data:/var/lib/mysql
+    ports: ["127.0.0.1:3307:3307"]
+    networks: { lan: { ipv4_address: 172.16.50.13 } }
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h127.0.0.1 --port=3307 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  # ---------- 포털 (Flask + AI-XDR) ----------
+  portal:
+    build: { context: ., dockerfile: docker/portal/Dockerfile }
+    image: nexus-portal:local
+    <<: *restart
+    container_name: nexus-portal
+    depends_on: { mysql: { condition: service_healthy } }
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3307"
+      DB_NAME: nexus
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      NEXUS_APP_PASSWORD: ${NEXUS_APP_PASSWORD}
+      NEXUS_CONF_PASSWORD: ${NEXUS_CONF_PASSWORD}
+      SECRET_KEY: ${SECRET_KEY}
+      COOKIE_SECURE: "0"
+      APP_HOST: 0.0.0.0
+      APP_PORT: "5070"
+      # 경계 장비(edge)가 붙여 주는 X-Forwarded-For 를 신뢰한다(실제 pfSense/HAProxy 와 같은 구조)
+      TRUSTED_PROXIES: 127.0.0.1,172.16.50.2
+      SEED_KIM_PW: ${SEED_KIM_PW}
+      SEED_LEE_PW: ${SEED_LEE_PW}
+      SEED_ADMIN_PW: ${SEED_ADMIN_PW}
+      LAB_INTERNAL_API_TOKEN: ${LAB_INTERNAL_API_TOKEN}
+      LAB_INTERNAL_API_FLAG: ${LAB_INTERNAL_API_FLAG}
+      GRAYLOG_GELF_ENABLED: "1"
+      GRAYLOG_GELF_HOST: graylog
+      GRAYLOG_GELF_PORT: "12201"
+      AI_PROVIDER: ${AI_PROVIDER}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL: ${GROQ_MODEL}
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      XDR_ENABLED: "1"
+      XDR_AUTO_ENABLED: "0"
+      XDR_AI_PROVIDER: ${XDR_AI_PROVIDER}
+      XDR_RESPONSE_MODE: ${XDR_RESPONSE_MODE}
+      XDR_IP_BLOCK_ENABLED: ${XDR_IP_BLOCK_ENABLED}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+      N8N_TICKET_AUTH_HEADER: ${N8N_WEBHOOK_HEADER}
+      N8N_TICKET_AUTH_VALUE: ${N8N_WEBHOOK_TOKEN}
+    volumes:
+      - portal_data:/app/instance
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    networks: { lan: { ipv4_address: 172.16.50.14 } }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:5070/healthz',timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  # ---------- 경계 장비 (pfSense: 방화벽 규칙 + HAProxy + 차단 목록 + 로그 전송) ----------
+  edge:
+    image: haproxy:2.9-alpine
+    <<: *restart
+    container_name: nexus-edge
+    hostname: pfSense-kry
+    user: root
+    depends_on: { portal: { condition: service_started } }
+    entrypoint: ["/etc/edge/entrypoint.sh"]
+    environment:
+      XDR_FEED_URL: http://portal:5070/feeds/xdr-blocked-ips.txt
+      SYNC_SECONDS: "5"
+    volumes:
+      - ./edge/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./edge:/etc/edge:ro
+      - edge_run:/run/edge
+    ports:
+      - "127.0.0.1:5070:5070"   # WAN 5070 (포털)
+      - "127.0.0.1:2200:2200"   # HAProxy 통계 (pfSense localstats)
+      - "127.0.0.1:3000:3000"   # ntopng 웹 화면 (pfSense LAN 3000)
+    networks:
+      wan: { ipv4_address: 192.168.3.2, priority: 100 }   # eth0 = WAN
+      lan: { ipv4_address: 172.16.50.2, priority: 10 }    # eth1 = LAN
+
+  # ---------- 침입탐지 (pfSense 의 Suricata 패키지: WAN, 탐지 전용, ET Open) ----------
+  suricata:
+    image: jasonish/suricata:latest
+    <<: *restart
+    container_name: nexus-suricata
+    network_mode: "service:edge"
+    depends_on: [edge]
+    cap_add: [NET_ADMIN, NET_RAW, SYS_NICE]
+    entrypoint: ["/bin/sh", "/opt/entrypoint.sh"]
+    volumes:
+      - ./suricata/entrypoint.sh:/opt/entrypoint.sh:ro
+      - ./suricata/forward.py:/opt/forward.py:ro
+      - suricata_rules:/var/lib/suricata
+      - suricata_logs:/var/log/suricata
+
+  # ---------- pfSense 스타일 읽기 전용 관리 화면 ----------
+  pfsense-ui:
+    build: { context: ./pfsense-ui }
+    image: nexus-pfsense-ui:local
+    <<: *restart
+    container_name: nexus-pfsense-ui
+    depends_on: [edge]
+    volumes:
+      - edge_run:/run/edge:ro
+      - suricata_logs:/var/log/suricata:ro
+    ports: ["127.0.0.1:8080:8080"]
+    networks: { lan: { ipv4_address: 172.16.50.18 } }
+
+  # ---------- 트래픽 모니터 (pfSense 의 ntopng 패키지: WAN) ----------
+  ntopng:
+    image: ntop/ntopng_arm64.dev:latest
+    <<: *restart
+    container_name: nexus-ntopng
+    network_mode: "service:edge"
+    depends_on: [edge]
+    cap_add: [NET_ADMIN, NET_RAW]
+    entrypoint: ["/bin/bash", "/opt/run.sh"]
+    volumes:
+      - ./ntopng/run.sh:/opt/run.sh:ro
+      - ntopng_data:/var/lib/ntopng
+
+  # ---------- 공격 PC (Kali 역할 — 같은 WAN 대역 192.168.3.11) ----------
+  attacker:
+    image: python:3.12-slim
+    <<: *restart
+    container_name: nexus-attacker
+    command: ["sleep", "infinity"]
+    volumes: ["./attacker:/attacks:ro"]
+    networks: { wan: { ipv4_address: 192.168.3.11 } }
+    profiles: ["attack"]
+
+  # ---------- 로그·탐지 (Graylog) ----------
+  mongo:
+    image: mongo:6.0
+    <<: *restart
+    container_name: nexus-mongo
+    volumes: ["mongo_data:/data/db"]
+    networks: { lan: { ipv4_address: 172.16.50.11 } }
+
+  opensearch:
+    image: opensearchproject/opensearch:2.15.0
+    <<: *restart
+    container_name: nexus-opensearch
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+      bootstrap.memory_lock: "false"
+      action.auto_create_index: "false"
+    ulimits: { nofile: { soft: 65536, hard: 65536 } }
+    volumes: ["os_data:/usr/share/opensearch/data"]
+    networks: { lan: { ipv4_address: 172.16.50.12 } }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  graylog:
+    image: graylog/graylog:6.1.16
+    <<: *restart
+    container_name: nexus-graylog
+    depends_on:
+      mongo: { condition: service_started }
+      opensearch: { condition: service_healthy }
+    environment:
+      GRAYLOG_PASSWORD_SECRET: ${GRAYLOG_PASSWORD_SECRET}
+      GRAYLOG_ROOT_PASSWORD_SHA2: ${GRAYLOG_ROOT_PASSWORD_SHA2}
+      GRAYLOG_HTTP_BIND_ADDRESS: 0.0.0.0:9000
+      GRAYLOG_HTTP_EXTERNAL_URI: http://127.0.0.1:9000/
+      GRAYLOG_MONGODB_URI: mongodb://mongo:27017/graylog
+      GRAYLOG_ELASTICSEARCH_HOSTS: http://opensearch:9200
+      GRAYLOG_ROOT_TIMEZONE: Asia/Seoul
+      GRAYLOG_TRANSPORT_EMAIL_ENABLED: "false"
+    volumes: ["graylog_data:/usr/share/graylog/data"]
+    ports:
+      - "127.0.0.1:9000:9000"
+    networks: { lan: { ipv4_address: 172.16.50.10 } }
+
+  # ---------- 파일 무결성 감시 (Wazuh 매니저, 에이전트는 포털 컨테이너 안) ----------
+  wazuh-manager:
+    image: wazuh/wazuh-manager:4.9.0
+    platform: linux/amd64        # 공식 이미지가 x86 전용(애플 칩에서는 에뮬레이션으로 실행, 처음엔 느림)
+    <<: *restart
+    container_name: nexus-wazuh-manager
+    volumes:
+      - ./wazuh/ossec.conf:/wazuh-config-mount/etc/ossec.conf:ro
+    networks: { lan: { ipv4_address: 172.16.50.17 } }
+
+  # ---------- 자동 대응 (n8n SOAR) ----------
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    <<: *restart
+    container_name: nexus-integrated-n8n
+    environment:
+      GENERIC_TIMEZONE: Asia/Seoul
+      TZ: Asia/Seoul
+      N8N_HOST: localhost
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:5678/
+      N8N_SECURE_COOKIE: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+      WEBHOOK_TOKEN: ${N8N_WEBHOOK_TOKEN}
+    volumes: ["n8n_data:/home/node/.n8n"]
+    ports: ["127.0.0.1:5678:5678"]
+    networks: { lan: { ipv4_address: 172.16.50.30 } }

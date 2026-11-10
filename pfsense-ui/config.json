@@ -1,0 +1,333 @@
+{
+ "system": {
+  "hostname": "pfSense-kry",
+  "domain": "home.arpa",
+  "version": "23.3",
+  "timezone": "Asia/Seoul",
+  "dns": [
+   "8.8.8.8",
+   "1.1.1.1"
+  ]
+ },
+ "interfaces": [
+  {
+   "name": "wan",
+   "if": "em0",
+   "ipaddr": "dhcp",
+   "subnet": ""
+  },
+  {
+   "name": "lan",
+   "if": "em1",
+   "ipaddr": "172.16.50.2",
+   "subnet": "24"
+  }
+ ],
+ "syslog": {
+  "remote": [
+   "172.16.50.1:1514",
+   "192.168.3.15:514"
+  ]
+ },
+ "aliases": [
+  {
+   "name": "pfB_PRI1_v4",
+   "type": "urltable",
+   "address": "",
+   "url": "https://127.0.0.1:443/pfblockerng/pfblockerng.php?pfb=pfB_PRI1_v4",
+   "descr": "pfBlockerNG  Auto  Alias [ Abuse_Feodo_C2_v4,Abuse_SSLBL_v4,CINS_army_v4,ET_Block_v4,ET_Comp_v4,ISC_Block_v4,Spamhaus_Drop_v4,Talos_BL_v4, ]"
+  },
+  {
+   "name": "pfB_GeoBlock_CRK_v4",
+   "type": "urltable",
+   "address": "",
+   "url": "https://127.0.0.1:443/pfblockerng/pfblockerng.php?pfb=pfB_GeoBlock_CRK_v4",
+   "descr": "pfBlockerNG  Auto  Alias [ China_v4,Russia_v4,NorthKorea_v4, ]"
+  },
+  {
+   "name": "EasyRuleBlockHostsWAN",
+   "type": "network",
+   "address": "203.0.113.71/32",
+   "url": "",
+   "descr": "Blocked via EasyRule"
+  },
+  {
+   "name": "NEXUS_AUTO_BLOCK",
+   "type": "host",
+   "address": "198.51.100.254",
+   "url": "",
+   "descr": "NEXUS automation test targets"
+  },
+  {
+   "name": "XDR_BLOCKED_IPS",
+   "type": "urltable",
+   "address": "http://192.168.3.14:5070/feeds/xdr-blocked-ips.txt",
+   "url": "http://192.168.3.14:5070/feeds/xdr-blocked-ips.txt",
+   "descr": "Portal XDR blocklist feed (auto-pulled)"
+  }
+ ],
+ "nat": [
+  {
+   "interface": "lan",
+   "protocol": "tcp",
+   "src": {
+    "address": "172.16.50.0/24"
+   },
+   "dst": {
+    "address": "172.16.50.2",
+    "port": "5000"
+   },
+   "target": "172.16.50.1",
+   "local_port": "5000",
+   "descr": "Lab Flask LAN 5000 forwarding"
+  },
+  {
+   "interface": "lan",
+   "protocol": "tcp",
+   "src": {
+    "address": "172.16.50.0/24"
+   },
+   "dst": {
+    "address": "172.16.50.2",
+    "port": "5070"
+   },
+   "target": "192.168.3.14",
+   "local_port": "5070",
+   "descr": "NEXUS WORK team portal LAN 5070"
+  },
+  {
+   "interface": "wan",
+   "protocol": "tcp",
+   "src": {
+    "any": ""
+   },
+   "dst": {
+    "network": "wanip",
+    "port": "5070"
+   },
+   "target": "192.168.3.14",
+   "local_port": "5070",
+   "descr": "NEXUS Kali-renox WAN-&gt;portal 5070"
+  }
+ ],
+ "rules": [
+  {
+   "type": "block",
+   "interface": "wan",
+   "protocol": "",
+   "src": {
+    "address": "pfB_GeoBlock_CRK_v4"
+   },
+   "dst": {
+    "any": ""
+   },
+   "log": true,
+   "descr": "pfB_GeoBlock_CRK_v4"
+  },
+  {
+   "type": "reject",
+   "interface": "lan",
+   "protocol": "",
+   "src": {
+    "any": ""
+   },
+   "dst": {
+    "address": "pfB_PRI1_v4"
+   },
+   "log": true,
+   "descr": "pfB_PRI1_v4"
+  },
+  {
+   "type": "block",
+   "interface": "wan",
+   "protocol": "",
+   "src": {
+    "address": "XDR_BLOCKED_IPS"
+   },
+   "dst": {
+    "any": ""
+   },
+   "log": true,
+   "descr": "WAN Quick Drop - XDR_BLOCKED_IPS (portal feed)"
+  },
+  {
+   "type": "block",
+   "interface": "wan",
+   "protocol": "",
+   "src": {
+    "address": "NEXUS_AUTO_BLOCK"
+   },
+   "dst": {
+    "any": ""
+   },
+   "log": true,
+   "descr": "WAN Quick Drop - NEXUS_AUTO_BLOCK"
+  },
+  {
+   "type": "pass",
+   "interface": "wan",
+   "protocol": "tcp",
+   "src": {
+    "any": ""
+   },
+   "dst": {
+    "network": "wanip",
+    "port": "5070"
+   },
+   "log": true,
+   "descr": "Allow WAN 5070 for HAProxy"
+  },
+  {
+   "type": "pass",
+   "interface": "wan",
+   "protocol": "tcp",
+   "src": {
+    "any": ""
+   },
+   "dst": {
+    "network": "wanip",
+    "port": "80"
+   },
+   "log": true,
+   "descr": ""
+  },
+  {
+   "type": "pass",
+   "interface": "wan",
+   "protocol": "udp",
+   "src": {
+    "any": ""
+   },
+   "dst": {
+    "network": "wanip",
+    "port": "1194"
+   },
+   "log": false,
+   "descr": ""
+  },
+  {
+   "type": "pass",
+   "interface": "wan",
+   "protocol": "tcp",
+   "src": {
+    "any": ""
+   },
+   "dst": {
+    "address": "192.168.3.14",
+    "port": "5070"
+   },
+   "log": true,
+   "descr": "NAT NEXUS Kali-renox WAN-&gt;portal 5070"
+  },
+  {
+   "type": "pass",
+   "interface": "lan",
+   "protocol": "tcp",
+   "src": {
+    "any": ""
+   },
+   "dst": {
+    "network": "(self)",
+    "port": "3000"
+   },
+   "log": false,
+   "descr": "Allow LAN access to ntopng web UI (3000)"
+  },
+  {
+   "type": "block",
+   "interface": "lan",
+   "protocol": "",
+   "src": {
+    "address": "NEXUS_AUTO_BLOCK"
+   },
+   "dst": {
+    "any": ""
+   },
+   "log": true,
+   "descr": "NEXUS automated block list"
+  },
+  {
+   "type": "pass",
+   "interface": "lan",
+   "protocol": "",
+   "src": {
+    "network": "lan"
+   },
+   "dst": {
+    "any": ""
+   },
+   "log": false,
+   "descr": "Default allow LAN to any rule"
+  },
+  {
+   "type": "pass",
+   "interface": "lan",
+   "protocol": "",
+   "src": {
+    "network": "lan"
+   },
+   "dst": {
+    "any": ""
+   },
+   "log": false,
+   "descr": "Default allow LAN IPv6 to any rule"
+  },
+  {
+   "type": "pass",
+   "interface": "lan",
+   "protocol": "tcp",
+   "src": {
+    "any": ""
+   },
+   "dst": {
+    "address": "192.168.3.14",
+    "port": "5070"
+   },
+   "log": false,
+   "descr": "NEXUS 공격망-&gt;포털만 허용(5070)"
+  },
+  {
+   "type": "pass",
+   "interface": "openvpn",
+   "protocol": "",
+   "src": {
+    "any": ""
+   },
+   "dst": {
+    "any": ""
+   },
+   "log": false,
+   "descr": ""
+  }
+ ],
+ "packages": [
+  "OpenVPN Client Export Utility",
+  "haproxy",
+  "pfBlockerNG-devel",
+  "suricata",
+  "ntopng",
+  "Cron"
+ ],
+ "services": [
+  {
+   "name": "haproxy",
+   "descr": "TCP/HTTP(S) Load Balancer"
+  },
+  {
+   "name": "pfb_dnsbl",
+   "descr": "pfBlockerNG DNSBL service"
+  },
+  {
+   "name": "pfb_filter",
+   "descr": "pfBlockerNG firewall filter service"
+  },
+  {
+   "name": "suricata",
+   "descr": "Suricata IDS/IPS Daemon"
+  },
+  {
+   "name": "ntopng",
+   "descr": "ntopng Network Traffic Monitor"
+  }
+ ]
+}

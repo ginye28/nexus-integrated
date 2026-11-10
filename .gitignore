@@ -1,0 +1,15 @@
+# 비밀값·개인 자료 (절대 올리지 않음)
+.env
+_private/
+*.log
+
+# 팀 포털 코드는 별도 저장소(stulss/nexus-work 또는 개인 포크)를 scripts/up.sh 가 portal/ 에 clone 한다
+/portal/
+
+# pfSense VM 디스크·ISO(수 GB)
+pfsense-vm/*.qcow2
+pfsense-vm/*.iso
+pfsense-vm/*.gz
+
+__pycache__/
+.DS_Store
