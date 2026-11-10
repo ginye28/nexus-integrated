@@ -3,7 +3,11 @@
 
 - 워크플로는 팀 재현 패키지의 이식용 템플릿(NEXUS-v3-portable-template-inactive.json)이다.
 - 포털·DB 주소는 이 노트북의 컨테이너 이름(portal, mysql)으로 바꾸고, 자격 증명은 .env 의 새 값으로 만든다.
-- Discord 알림 3개와 실제 IP 차단 노드는 템플릿 그대로 꺼진 채로 둔다(안전 설정 유지).
+- 템플릿에서 꺼져 있던 자동 조치 노드 5개(Discord 알림, DB 조치 실행, 대응 결과 알림, 계정 조치 실행,
+  R5/R6/R8 IP 차단 API)는 팀 운영과 같게 켠다. 끄고 싶으면 .env 에 N8N_AUTO_ACTIONS=0 을 적는다.
+  (계정 조치는 users 표의 잠금 컬럼만 고칠 수 있게 좁은 권한을 mysql-init/20-n8n-local.sh 가 준다.)
+  '안전 설정(수신)' 노드의 스위치(live_enabled·discord_enabled·ip_block_enabled·response_mode)도 .env 값에 맞춰 켠다.
+  IP 자동 차단은 템플릿의 예외 목록(127.0.0.1, 192.168.3.10/.11/.14/.15)에 든 주소를 건드리지 않는다.
 - 여러 번 실행해도 안전하다(같은 ID 의 워크플로·연결 정보는 덮어쓴다).
 """
 import json
@@ -20,6 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "portal" / "repro-package" / "NEXUS-WORK-REPRO-2026-11-09" / "n8n" / "NEXUS-v3-portable-template-inactive.json"
 CONTAINER = "nexus-integrated-n8n"
 WF_ID = "NXv3AiXdr27Qp6Lm"
+AUTO_NODES = {"Discord 알림", "DB 조치 실행", "대응 결과 알림", "계정 조치 실행", "R5/R6/R8 IP 차단 API"}
 
 
 def load_env():
@@ -81,12 +86,13 @@ def build_files():
          "data": {"name": ENV.get("N8N_WEBHOOK_HEADER", "x-webhook-token"), "value": ENV["N8N_WEBHOOK_TOKEN"]}},
     ]
     discord = ENV.get("DISCORD_WEBHOOK_URL", "").strip()
+    auto_actions = ENV.get("N8N_AUTO_ACTIONS", "1").strip() != "0"
     wf = json.loads(TEMPLATE.read_text(encoding="utf-8"))
     wf["id"] = WF_ID
     wf["active"] = False
-    wf["name"] = "NEXUS 탐지 알림 수신 v3 - AI-XDR 통합본 (DRY-RUN)"
+    wf["name"] = "NEXUS 탐지 알림 수신 v3 - AI-XDR 통합본 (로컬)" if auto_actions else "NEXUS 탐지 알림 수신 v3 - AI-XDR 통합본 (DRY-RUN)"
     wf["description"] = "팀 재현 패키지 v3 템플릿을 이 노트북용(portal/mysql 컨테이너)으로 연결한 워크플로"
-    counts = {"mySql": 0, "httpBearerAuth": 0, "httpHeaderAuth": 0, "url": 0, "discord": 0}
+    counts = {"mySql": 0, "httpBearerAuth": 0, "httpHeaderAuth": 0, "url": 0, "discord": 0, "enabled": 0, "switches": 0}
     for n in wf["nodes"]:
         t = n["type"]
         p = n.get("parameters", {})
@@ -118,6 +124,26 @@ def build_files():
         if discord and n["name"] == "AI-XDR 평가 Discord 활성?":
             p["conditions"]["conditions"][0]["leftValue"] = "={{ true }}"
             counts["discord"] += 1
+        if auto_actions and n["name"] == "NEXUS 안전 설정(수신)":
+            # 노드만 켜서는 동작하지 않는다. 이 노드의 스위치가 실제 조치(live)·Discord·IP 차단의 허용 여부를 정한다.
+            want = {"response_mode": ENV.get("XDR_RESPONSE_MODE", "live") or "live", "live_enabled": True,
+                    "discord_enabled": bool(discord), "ip_block_enabled": ENV.get("XDR_IP_BLOCK_ENABLED", "1") == "1"}
+            for a in p["assignments"]["assignments"]:
+                if a["name"] in want:
+                    a["value"] = want[a["name"]]
+                    counts["switches"] += 1
+        if auto_actions and n["name"] in AUTO_NODES:
+            n.pop("disabled", None)
+            counts["enabled"] += 1
+            if n["type"] == "n8n-nodes-base.discord":
+                # Discord 노드는 별도 연결 정보가 필요하므로, 임베드 카드와 같은 웹훅 주소로 HTTP 요청을 보낸다
+                n["type"] = "n8n-nodes-base.httpRequest"
+                n["typeVersion"] = 4.2
+                n.pop("credentials", None)
+                n["parameters"] = {"method": "POST", "url": "={{ $env.DISCORD_WEBHOOK_URL }}", "sendBody": True,
+                                   "specifyBody": "json",
+                                   "jsonBody": "={{ JSON.stringify({ username: 'NEXUS SOC Guardian', content: String($json.message || '').slice(0, 1900) }) }}",
+                                   "options": {}}
         if isinstance(p.get("url"), str) and "host.docker.internal:5070" in p["url"]:
             p["url"] = p["url"].replace("host.docker.internal:5070", "portal:5070")
             counts["url"] += 1
