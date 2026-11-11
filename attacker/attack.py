@@ -61,6 +61,16 @@ def r1():
         time.sleep(1)
 
 
+def r1c():
+    """계정 침해 의심(R1): 같은 계정으로 4회(5회 잠금 직전) 실패한 뒤 성공을 같은 1분 안에 2번 → account_compromise_suspected 2건."""
+    for rnd in (1, 2):
+        c = C()
+        for i in range(4):
+            print(f"R1c[{rnd}] han 로그인 실패 {i + 1}/4 -> HTTP", c.login("han", "wrong-" + secrets.token_hex(3)))
+            time.sleep(0.5)
+        print(f"R1c[{rnd}] han 올바른 비밀번호 로그인 ->", c.login("han", os.environ["SEED_KIM_PW"]))
+
+
 def chat(c, msg):
     s, b = c.req("POST", "/chat/messages", {"message": msg, "csrf_token": c.csrf("/chat")})
     return s
@@ -96,6 +106,6 @@ def r3():
 
 if __name__ == "__main__":
     what = sys.argv[1] if len(sys.argv) > 1 else "all"
-    run = {"r8": r8, "r1": r1, "r2": r2, "r3": r3, "scan": scan}
+    run = {"r8": r8, "r1": r1, "r1c": r1c, "r2": r2, "r3": r3, "scan": scan}
     for name in (run if what == "all" else [what]):
         run[name]()

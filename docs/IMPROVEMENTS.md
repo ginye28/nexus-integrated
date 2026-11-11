@@ -28,6 +28,11 @@
 | 15 | 팀 자동 시험 14개 실패 | 팀 시험이 최신 코드(`/admin/api/incidents-live` 추가, 결재 체인 변경)를 따라가지 못함 | 팀 코드는 건드리지 않고 결과만 기록 | 1,562개 중 1,548개 통과 |
 | 16 | 새 PC 설치(깨끗한 clone)에서 `up.sh` 가 중간에 멈춤 | ntopng·Suricata 가 edge 의 네트워크를 공유하는데 edge 가 안정되기 전에 시작되어 `namespace path ... no such file` | edge 에 헬스체크를 추가하고 두 컨테이너가 edge healthy 일 때만 시작하도록 `depends_on` 조건 변경, `up.sh` 1회 재시도 | 깨끗한 설치에서 `up.sh` 완주, `verify.sh` 7/7 |
 | 17 | 키 없이 설치해도 AI 시나리오가 될 것처럼 문서에 적음 | Groq 키가 없으면 AI 에이전트가 도구를 호출하지 않아 R3·R11·R12 가 발생하지 않고, AI-XDR 은 판정 불가 | 깨끗한 설치로 직접 확인한 뒤 README·`.env.example` 에 "AI 시나리오는 Groq 키 필요"로 정정 | 문서와 실제 동작 일치 |
+| 18 | 승인했는데 계정이 안 잠김(응답은 200·`success: true`) | n8n 2.x 가 `params.join(',')` 로 만든 문자열을 쉼표로 나누지 않아 `INTERVAL '15,han' MINUTE … WHERE username = NULL` 이 실행됨(MySQL general log 로 확인) | `bootstrap_n8n.py` 가 `queryReplacement` 를 배열(`$json.db.params`)로 바꿈, n8n 이미지를 2.46.6 으로 고정 | 승인 0.2초 만에 han 잠금, 올바른 비밀번호도 로그인 거부, 해제 뒤 정상 로그인 |
+| 19 | R1 AI 판정이 MALICIOUS 85 인데도 상태가 `NO_ACTION` | 통합 환경이 `XDR_AUTO_MIN_CONFIDENCE`(팀 기본 0.80)를 포털에 넘기지 않아 `confidence_threshold_unset` 으로 fail-closed | compose·`setup_env.py`·`.env.example` 에 `XDR_AUTO_MIN_SCORE=80`, `XDR_AUTO_MIN_CONFIDENCE=0.80` 추가 | 평가가 `PENDING`(승인 대기)으로 정상 전환 |
+| 20 | 승인 요청이 503 `assessment_decision_failed` | 팀 포털의 `/internal/api/v1/ai-xdr/decision` 은 `XDR_RESPONSE_MODE=dry-run` 에서만 열림(`dry_run_only` 409) — IP 차단 시연용 `live` 와 동시 사용 불가 | `scenario.py r1lock` 이 시험 동안만 포털을 dry-run 으로 바꾸고 끝나면 원래 모드로 복원 | R1 승인 경로 재현. 제약 자체는 팀 코드의 설계이므로 문서화 |
+| 21 | 상황판(티켓 처리) 경로가 dry-run 으로만 동작 | '안전 설정' 노드가 3곳((수신)·(조회)·(티켓 처리))인데 (수신)만 켰음 | 3곳 모두 `.env` 값에 맞춰 켬(`switches` 4 → 8) | approve_response 가 live 로 실행 |
+| 22 | 시나리오 중 내 PC(172.16.50.1)가 403 으로 막힘 | 시험이 호스트에서 한 로그인 시도가 별도 평가가 되어, 다른 시나리오의 승인이 그 평가를 승인해 호스트 IP 를 차단 | 평가를 공격 PC IP 로 한정, `unblock.sh` 가 호스트 IP 도 해제 | 재발 방지, `r3 --approve` 정상 |
 
 ## 2. 리허설·본발표 피드백 반영
 
@@ -38,7 +43,7 @@
 ## 3. 시간이 더 있다면 개선하고 싶은 것
 
 1. **진짜 pfSense 를 트래픽 경로에 연결** — 지금은 컨테이너 `edge` 가 대신하고 VM 은 따로 있습니다(Apple 칩 x86 에뮬레이션 + 공격 PC 출발지 IP 구분 문제).
-2. **R1 의심 계정 잠금 승인 경로를 혼자서도 재현**하는 시나리오(관리자 승인까지 포함) 추가.
+2. **IP 자동 차단 예외·승인 정책을 설정으로 정리** — R1 승인 API 가 포털 dry-run 에서만 열려 `live` 와 동시에 못 쓰는 제약을 분리(팀 포털 코드 변경 필요).
 3. **IP 자동 차단 예외 목록 정리** — 템플릿의 고정 목록(.10/.11/.14/.15)에 시연용 공격 PC(.11)가 들어 있어 자동 차단이 안 됩니다. 환경 변수로 분리하고 싶습니다.
 4. 팀 시험 14개 실패를 **최신 코드에 맞게 고쳐 PR** 로 올리기.
 5. 위협 점수 임계값(80점)과 주간/야간 정책을 데이터(실제 오탐률)로 조정.

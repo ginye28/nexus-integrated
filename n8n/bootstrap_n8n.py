@@ -6,7 +6,7 @@
 - 템플릿에서 꺼져 있던 자동 조치 노드 5개(Discord 알림, DB 조치 실행, 대응 결과 알림, 계정 조치 실행,
   R5/R6/R8 IP 차단 API)는 팀 운영과 같게 켠다. 끄고 싶으면 .env 에 N8N_AUTO_ACTIONS=0 을 적는다.
   (계정 조치는 users 표의 잠금 컬럼만 고칠 수 있게 좁은 권한을 mysql-init/20-n8n-local.sh 가 준다.)
-  '안전 설정(수신)' 노드의 스위치(live_enabled·discord_enabled·ip_block_enabled·response_mode)도 .env 값에 맞춰 켠다.
+  '안전 설정' 노드 3곳((수신)·(조회)·(티켓 처리))의 스위치(live_enabled·discord_enabled·ip_block_enabled·response_mode)도 .env 값에 맞춰 켠다.
   IP 자동 차단은 템플릿의 예외 목록(127.0.0.1, 192.168.3.10/.11/.14/.15)에 든 주소를 건드리지 않는다.
 - 여러 번 실행해도 안전하다(같은 ID 의 워크플로·연결 정보는 덮어쓴다).
 """
@@ -92,7 +92,7 @@ def build_files():
     wf["active"] = False
     wf["name"] = "NEXUS 탐지 알림 수신 v3 - AI-XDR 통합본 (로컬)" if auto_actions else "NEXUS 탐지 알림 수신 v3 - AI-XDR 통합본 (DRY-RUN)"
     wf["description"] = "팀 재현 패키지 v3 템플릿을 이 노트북용(portal/mysql 컨테이너)으로 연결한 워크플로"
-    counts = {"mySql": 0, "httpBearerAuth": 0, "httpHeaderAuth": 0, "url": 0, "discord": 0, "enabled": 0, "switches": 0}
+    counts = {"mySql": 0, "httpBearerAuth": 0, "httpHeaderAuth": 0, "url": 0, "discord": 0, "enabled": 0, "switches": 0, "queryReplacement": 0}
     for n in wf["nodes"]:
         t = n["type"]
         p = n.get("parameters", {})
@@ -103,6 +103,12 @@ def build_files():
             n.setdefault("maxTries", 4)
             n.setdefault("waitBetweenTries", 1500)
             counts["mySql"] += 1
+            # n8n 2.x 는 params.join(',') 로 만든 문자열을 쉼표로 나누지 않아 값이 하나('15,han')로 묶인다(계정 잠금이 아무 행도 못 바꾼 원인).
+            # 배열 그대로 넘기면 $1, $2 에 각각 바인딩된다.
+            qr = (p.get("options") or {}).get("queryReplacement")
+            if isinstance(qr, str) and ".params.join(',')" in qr:
+                p["options"]["queryReplacement"] = qr.replace(".join(',')", "")
+                counts["queryReplacement"] += 1
         elif t == "n8n-nodes-base.httpRequest" and p.get("genericAuthType") == "httpBearerAuth":
             n["credentials"] = {"httpBearerAuth": {"id": "NXcredBearerPortal", "name": "NEXUS Portal API (Bearer)"}}
             counts["httpBearerAuth"] += 1
@@ -124,7 +130,7 @@ def build_files():
         if discord and n["name"] == "AI-XDR 평가 Discord 활성?":
             p["conditions"]["conditions"][0]["leftValue"] = "={{ true }}"
             counts["discord"] += 1
-        if auto_actions and n["name"] == "NEXUS 안전 설정(수신)":
+        if auto_actions and n["name"].startswith("NEXUS 안전 설정("):  # (수신)·(조회)·(티켓 처리) 3곳 모두
             # 노드만 켜서는 동작하지 않는다. 이 노드의 스위치가 실제 조치(live)·Discord·IP 차단의 허용 여부를 정한다.
             want = {"response_mode": ENV.get("XDR_RESPONSE_MODE", "live") or "live", "live_enabled": True,
                     "discord_enabled": bool(discord), "ip_block_enabled": ENV.get("XDR_IP_BLOCK_ENABLED", "1") == "1"}

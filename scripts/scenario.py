@@ -33,6 +33,7 @@ SCENARIOS = {
     "r1": ("r1", {"R1", "R6"}, "han 계정 로그인 6회 실패(잠금 → 잠금 후 재시도)"),
     "r2": ("r2", {"R2"}, "챗봇 프롬프트 인젝션"),
     "r3": ("r3", {"R3", "R11"}, "AI 에게 기밀 문서 요청 3회"),
+    "r1lock": ("r1c", {"R1"}, "han 4회 실패 후 성공(계정 침해 의심) → 관리자 승인 → 계정 잠금"),
     "scan": ("scan", set(), "스캐너 User-Agent 4종 (Suricata 경보)"),
     "decoy": (None, set(), "미끼 경로(/.env) 접근 (포털 허니팟)"),
 }
@@ -76,6 +77,29 @@ def graylog_count(query, seconds):
         return json.load(urllib.request.urlopen(req, timeout=20)).get("total_results", 0)
     except Exception:
         return -1
+
+
+def portal_mode(mode):
+    """포털 컨테이너를 XDR_RESPONSE_MODE=mode 로 다시 만든다(팀 포털의 R1 승인 API 는 dry-run 에서만 열린다). 건강해질 때까지 기다린다."""
+    env = dict(os.environ, XDR_RESPONSE_MODE=mode)
+    subprocess.run(["docker", "compose", "up", "-d", "portal"], capture_output=True, text=True, cwd=ROOT, env=env, timeout=300)
+    for _ in range(40):
+        st = subprocess.run(["docker", "inspect", "-f", "{{.State.Health.Status}}", "nexus-portal"], capture_output=True, text=True).stdout.strip()
+        if st == "healthy":
+            break
+        time.sleep(4)
+    time.sleep(5)
+
+
+def n8n_ticket_action(payload):
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request("http://127.0.0.1:5678/webhook/nexus-ticket-action", body, method="POST",
+                                 headers={"Content-Type": "application/json", ENV["N8N_WEBHOOK_HEADER"]: ENV["N8N_WEBHOOK_TOKEN"]})
+    try:
+        resp = urllib.request.urlopen(req, timeout=60)
+        return resp.status, resp.read().decode()[:200]
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode()[:200]
 
 
 def graylog_events(since_utc):
@@ -136,6 +160,11 @@ def main():
     base_alert = int(sql("SELECT COUNT(*) FROM security_incident_alerts")[0][0])
     base_assess = int(sql("SELECT COUNT(*) FROM security_xdr_assessments")[0][0])
     base_assess_ids = {r[0] for r in sql("SELECT assessment_id FROM security_xdr_assessments")}
+    if name == "r1lock":
+        # 같은 공격 PC(IP)의 티켓에 여러 계정이 섞여 있으면 'han 한 명'이 아니라 계정 잠금 계획이 만들어지지 않는다 → 열린 티켓을 먼저 닫는다
+        for (tid,) in sql(f"SELECT id FROM security_incident_tickets WHERE src_ip='{ATTACKER_IP}' AND status='open'"):
+            code, _t = n8n_ticket_action({"action": "close", "ticket_id": "NX-DB-%06d" % int(tid), "note": "시나리오 시작 전 정리"})
+            print(f"[0] 이전 티켓 NX-DB-{int(tid):06d} 닫기 → HTTP {code}")
     pre = attacker_http("/")
     res["steps"]["0_사전"] = {"공격PC 포털 접속 코드": pre, "알림 건수": base_alert, "평가 건수": base_assess}
     print(f"[0] 사전: 공격 PC → 포털 {pre}, 알림 {base_alert}건, AI 평가 {base_assess}건")
@@ -194,7 +223,7 @@ def main():
     if name not in ("scan", "decoy"):
         deadline = time.time() + 300
         while time.time() < deadline:
-            rows = sql("SELECT assessment_id, verdict, threat_score, confidence, status, recommended_actions, policy_mode FROM security_xdr_assessments ORDER BY created_at DESC LIMIT 5")
+            rows = sql("SELECT assessment_id, verdict, threat_score, confidence, status, recommended_actions, policy_mode, incident_ticket_id FROM security_xdr_assessments WHERE src_ip = '192.168.3.11' ORDER BY created_at DESC LIMIT 5")
             fresh = [r for r in rows if r[0] not in base_assess_ids]
             if fresh:
                 assess = fresh[0]
@@ -207,6 +236,35 @@ def main():
         else:
             res["steps"]["3_AI-XDR 평가"] = {"결과": "300초 안에 새 평가 없음"}
             print("[3] AI-XDR 평가: 300초 안에 새 평가 없음")
+
+    # 4') R1 계정 잠금 승인 (r1lock): 상황판이 하는 것과 같은 요청(approve_response)을 n8n 에 보낸다
+    if name == "r1lock":
+        if assess and assess[4] == "PENDING" and assess[7]:
+            t1 = time.time()
+            ticket = "NX-DB-%06d" % int(assess[7])
+            code, text = 0, ""
+            for _ in range(12):
+                code, text = n8n_ticket_action({"action": "approve_response", "ticket_id": ticket, "assessment_id": assess[0]})
+                if code != 404:  # 404(no_pending_action) = 아직 n8n 이 승인 계획을 저장하기 전
+                    break
+                time.sleep(10)
+            locked = None
+            for _ in range(30):
+                r = sql("SELECT locked_until, locked_until > NOW() FROM users WHERE username='han'")
+                locked = r[0] if r else None
+                if os.environ.get("SCEN_DEBUG"):
+                    print("   poll:", r)
+                if locked and locked[1] == "1":
+                    break
+                time.sleep(2)
+            blocked_login = Portal().login("han", ENV["SEED_KIM_PW"]) if locked and locked[1] == "1" else None
+            res["steps"]["4_승인·계정 잠금"] = {"잠긴 뒤 han 올바른 비밀번호 로그인 응답": blocked_login, "티켓": ticket, "승인 응답": code, "응답 본문": text,
+                                            "han 잠금": bool(locked and locked[1] == "1"), "잠금 해제 시각": locked[0] if locked else None,
+                                            "승인→잠금 확인(초)": round(time.time() - t1, 1)}
+            print(f"[4] 승인(approve_response) 응답 {code} → han 잠금 {bool(locked and locked[1] == '1')} ({time.time() - t1:.0f}초)")
+        else:
+            res["steps"]["4_승인·계정 잠금"] = {"건너뜀": "승인 대기 중인 R1 평가가 없음", "평가": list(assess) if assess else None}
+            print("[4] 승인 건너뜀: 승인 대기 중인 R1 평가가 없음 →", assess)
 
     # 4) 관리자 승인 → 차단 (--approve)
     if approve and assess and "block_ip" in (assess[5] or "") and assess[4] == "PENDING":
@@ -233,8 +291,11 @@ def main():
     after = attacker_http("/")
     res["steps"]["5_복구"] = {"공격PC 포털 접속 코드": after, "소요(초)": round(time.time() - t2, 1)}
     print(f"[5] 복구: 차단 해제 후 공격 PC → 포털 {after} ({time.time() - t2:.0f}초)")
-    if name == "r1":
+    if name in ("r1", "r1lock"):
         sql("UPDATE users SET locked_until=NULL WHERE username='han'")
+        left = sql("SELECT locked_until FROM users WHERE username='han'")
+        res["steps"]["5_복구"]["han 잠금 해제"] = (left[0][0] in ("NULL", "") if left else None)
+        res["steps"]["5_복구"]["해제 뒤 han 로그인 응답"] = Portal().login("han", ENV["SEED_KIM_PW"])
         print("    (R1 시험으로 잠긴 han 계정도 해제)")
 
     out = ROOT / "docs" / "results"
@@ -245,4 +306,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "r1lock":
+        print("(R1 승인 API 는 포털이 dry-run 일 때만 열리므로 시험 동안 포털을 dry-run 으로 바꿉니다. 끝나면 원래 모드로 되돌립니다)")
+        portal_mode("dry-run")
+        try:
+            main()
+        finally:
+            portal_mode(ENV.get("XDR_RESPONSE_MODE", "live"))
+            print("포털 모드 복원:", ENV.get("XDR_RESPONSE_MODE", "live"))
+    else:
+        main()

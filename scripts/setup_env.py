@@ -24,6 +24,8 @@ defaults = {
     "GROQ_API_KEY": "", "GROQ_MODEL": "openai/gpt-oss-120b", "AI_PROVIDER": "auto", "XDR_AI_PROVIDER": "auto",
     # --- AI-XDR 동작: demo = 관리자 승인 시 실제로 IP 차단(이 노트북 안의 공격 PC 컨테이너만 대상), safe = 기록만(dry-run)
     "NEXUS_XDR_MODE": "demo",
+    # AI 판정이 이 점수·신뢰도 이상일 때만 승인 대기(R1 계정 잠금)·자동 차단 후보가 된다(팀 포털 .env.example 기본값)
+    "XDR_AUTO_MIN_SCORE": "80", "XDR_AUTO_MIN_CONFIDENCE": "0.80",
     # --- Graylog ---
     "GRAYLOG_ROOT_PASSWORD": pw(), "GRAYLOG_PASSWORD_SECRET": tok(48),
     # --- n8n ---

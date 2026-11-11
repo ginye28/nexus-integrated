@@ -83,6 +83,9 @@ services:
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       XDR_ENABLED: "1"
       XDR_AUTO_ENABLED: "0"
+      # 팀 포털 .env.example 기본값. 신뢰도 임계값이 비어 있으면 R1 승인·야간 자동 차단이 모두 닫힌다(fail-closed)
+      XDR_AUTO_MIN_SCORE: ${XDR_AUTO_MIN_SCORE:-80}
+      XDR_AUTO_MIN_CONFIDENCE: ${XDR_AUTO_MIN_CONFIDENCE:-0.80}
       XDR_AI_PROVIDER: ${XDR_AI_PROVIDER}
       XDR_RESPONSE_MODE: ${XDR_RESPONSE_MODE}
       XDR_IP_BLOCK_ENABLED: ${XDR_IP_BLOCK_ENABLED}
@@ -243,7 +246,7 @@ services:
 
   # ---------- 자동 대응 (n8n SOAR) ----------
   n8n:
-    image: docker.n8n.io/n8nio/n8n:latest
+    image: docker.n8n.io/n8nio/n8n:2.46.6   # 버전 고정(latest 는 쿼리 파라미터 처리가 달라질 수 있음)
     <<: *restart
     container_name: nexus-integrated-n8n
     environment:
