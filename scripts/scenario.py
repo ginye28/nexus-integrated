@@ -223,8 +223,15 @@ def main():
     if name not in ("scan", "decoy"):
         deadline = time.time() + 300
         while time.time() < deadline:
-            rows = sql("SELECT assessment_id, verdict, threat_score, confidence, status, recommended_actions, policy_mode, incident_ticket_id FROM security_xdr_assessments WHERE src_ip = '192.168.3.11' ORDER BY created_at DESC LIMIT 5")
-            fresh = [r for r in rows if r[0] not in base_assess_ids]
+            rows = sql("SELECT assessment_id, verdict, threat_score, confidence, status, recommended_actions, policy_mode, incident_ticket_id, rule_ids FROM security_xdr_assessments WHERE src_ip = '192.168.3.11' ORDER BY created_at DESC LIMIT 5")
+            # 이전 시나리오의 평가가 늦게 처리되어 섞일 수 있으므로, 이 시나리오가 기대하는 규칙의 평가만 고른다
+            def _match(r):
+                try:
+                    ids = set(json.loads(r[8]))
+                except (TypeError, ValueError):
+                    ids = set()
+                return not rules or bool(rules & ids)
+            fresh = [r for r in rows if r[0] not in base_assess_ids and _match(r)]
             if fresh:
                 assess = fresh[0]
                 break
