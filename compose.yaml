@@ -38,6 +38,7 @@ services:
     volumes:
       - ./portal/db/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - ./mysql-init/20-n8n-local.sh:/docker-entrypoint-initdb.d/20-n8n-local.sh:ro
+      - ./mysql-init/30-hr-card-edit.sh:/docker-entrypoint-initdb.d/30-hr-card-edit.sh:ro
       - ./portal/db/schema.sql:/seed/schema.sql:ro
       - ./portal/db/grants.sql:/seed/grants.sql:ro
       - mysql_data:/var/lib/mysql

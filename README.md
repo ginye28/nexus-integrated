@@ -177,8 +177,8 @@ docker compose exec mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --port=3307 nexu
 ./scripts/unblock.sh    # 관리자 승인으로 차단된 공격 PC(192.168.3.11) 즉시 해제
 ```
 
-**알려진 점검 결과 (2026-11-10)**: `test.sh` 는 1562개 중 1548개 통과, 14개 실패. 실패는 팀 포털 시험이 최신 코드(예: `/admin/api/incidents-live` 경로 추가, 결재 체인 변경)를 따라가지 못한 것 위주이며 이 통합 환경 때문이 아니다.
-다만 `test_n8n_account`(n8n DB 권한 목록)는 이 환경이 `mysql-init/20-n8n-local.sh` 로 로컬 n8n 용 권한을 더 주기 때문에 다를 수 있다.
+**점검 결과 (2026-11-11)**: `./scripts/test.sh` 는 팀 포털 시험 **1558개 통과, 1개 건너뜀(실패 0)** 입니다. 팀 저장소 최신 main 그대로는 15개가 실패했고, 원인은 (1) 시험이 현재 동작을 따라가지 못한 것, (2) 실제 결함(CSP 위반으로 브라우저에서 막히던 인라인 스타일·스크립트, 새 DB 에서 500 이 되는 인사카드 수정 권한, 상수가 아닌 SQL 문자열)이었습니다. 수정은 팀 저장소가 아니라 **개인 포크 브랜치**에 있습니다: https://github.com/ginye28/nexus-work/tree/fix/sync-tests-with-main (커밋 `afdd884`, 포크가 비공개라 공개하거나 팀에 PR 로 제안할 때까지 이 저장소의 새 DB 설치에는 `mysql-init/30-hr-card-edit.sh` 가 같은 권한을 줍니다).
+`test.sh` 는 운영 DB(`nexus`)가 아니라 `nexus_test` 만 쓰고(`DB_NAME`), AI-XDR 은 dry-run 으로 고정해 실행합니다.
 
 **포털 코드 변경 올리기 (팀 저장소에 직접 올리지 않기)**
 

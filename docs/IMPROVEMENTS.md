@@ -25,7 +25,7 @@
 | 12 | n8n 자동 조치 노드를 켜도 아무 일이 없음 | 노드 활성화와 별개로 '안전 설정' 노드의 `live_enabled`·`discord_enabled`·`ip_block_enabled` 스위치가 꺼져 있었음 | `bootstrap_n8n.py` 가 `.env` 값에 맞춰 스위치까지 켬 | R8 → Discord, 예외 밖 IP → 15분 차단, R3 → 강제 로그아웃 확인 |
 | 13 | 계정 조치 SQL 이 권한 오류가 날 처지 | n8n 전용 DB 계정이 티켓 표 3개만 접근 가능 | `users` 표의 `locked_until`·`session_version` 컬럼만 SELECT/UPDATE 하도록 컬럼 단위 권한 부여 | 잠금 SQL 성공(롤백 확인), `password_hash` 는 읽기 거부 |
 | 14 | `.env.example` 을 복사해 쓰면 비밀번호가 빈 값 | `setup_env.py` 가 기존 빈 값으로 생성값을 덮어씀 | 덮어쓰는 줄 제거, 임시 폴더에서 재시험 | 빈 `.env` 에서도 무작위 값이 채워짐 |
-| 15 | 팀 자동 시험 14개 실패 | 팀 시험이 최신 코드(`/admin/api/incidents-live` 추가, 결재 체인 변경)를 따라가지 못함 | 팀 코드는 건드리지 않고 결과만 기록 | 1,562개 중 1,548개 통과 |
+| 15 | 팀 자동 시험 15개 실패(최신 main) | 시험이 현재 동작을 못 따라간 것 + 실제 결함 | 원인별로 분류해 개인 포크 브랜치 `fix/sync-tests-with-main` 에서 수정(아래 #23~#26) | 1,558개 통과·1개 건너뜀, 실패 0 |
 | 16 | 새 PC 설치(깨끗한 clone)에서 `up.sh` 가 중간에 멈춤 | ntopng·Suricata 가 edge 의 네트워크를 공유하는데 edge 가 안정되기 전에 시작되어 `namespace path ... no such file` | edge 에 헬스체크를 추가하고 두 컨테이너가 edge healthy 일 때만 시작하도록 `depends_on` 조건 변경, `up.sh` 1회 재시도 | 깨끗한 설치에서 `up.sh` 완주, `verify.sh` 7/7 |
 | 17 | 키 없이 설치해도 AI 시나리오가 될 것처럼 문서에 적음 | Groq 키가 없으면 AI 에이전트가 도구를 호출하지 않아 R3·R11·R12 가 발생하지 않고, AI-XDR 은 판정 불가 | 깨끗한 설치로 직접 확인한 뒤 README·`.env.example` 에 "AI 시나리오는 Groq 키 필요"로 정정 | 문서와 실제 동작 일치 |
 | 18 | 승인했는데 계정이 안 잠김(응답은 200·`success: true`) | n8n 2.x 가 `params.join(',')` 로 만든 문자열을 쉼표로 나누지 않아 `INTERVAL '15,han' MINUTE … WHERE username = NULL` 이 실행됨(MySQL general log 로 확인) | `bootstrap_n8n.py` 가 `queryReplacement` 를 배열(`$json.db.params`)로 바꿈, n8n 이미지를 2.46.6 으로 고정 | 승인 0.2초 만에 han 잠금, 올바른 비밀번호도 로그인 거부, 해제 뒤 정상 로그인 |
@@ -33,6 +33,11 @@
 | 20 | 승인 요청이 503 `assessment_decision_failed` | 팀 포털의 `/internal/api/v1/ai-xdr/decision` 은 `XDR_RESPONSE_MODE=dry-run` 에서만 열림(`dry_run_only` 409) — IP 차단 시연용 `live` 와 동시 사용 불가 | `scenario.py r1lock` 이 시험 동안만 포털을 dry-run 으로 바꾸고 끝나면 원래 모드로 복원 | R1 승인 경로 재현. 제약 자체는 팀 코드의 설계이므로 문서화 |
 | 21 | 상황판(티켓 처리) 경로가 dry-run 으로만 동작 | '안전 설정' 노드가 3곳((수신)·(조회)·(티켓 처리))인데 (수신)만 켰음 | 3곳 모두 `.env` 값에 맞춰 켬(`switches` 4 → 8) | approve_response 가 live 로 실행 |
 | 22 | 시나리오 중 내 PC(172.16.50.1)가 403 으로 막힘 | 시험이 호스트에서 한 로그인 시도가 별도 평가가 되어, 다른 시나리오의 승인이 그 평가를 승인해 호스트 IP 를 차단 | 평가를 공격 PC IP 로 한정, `unblock.sh` 가 호스트 IP 도 해제 | 재발 방지, `r3 --approve` 정상 |
+
+| 23 | 관리 현황·인시던트 화면의 실시간 갱신이 브라우저에서 안 됨 | 포털 CSP(`style-src/script-src 'self'`)가 인라인 `<script>`·`<style>`·`style=`·`onsubmit=` 를 막는데 6개 템플릿이 쓰고 있었음(시험의 CSP 검사가 관리자 화면 일부를 안 봄) | 스타일을 `style.css` 클래스로, 스크립트를 정적 JS 3개로 옮기고 시험이 관리자 화면 3개도 검사하게 함 | 브라우저 콘솔 CSP 오류 0, 화면 모양 유지 |
+| 24 | 새 DB 에서 인사카드 수정이 500(`UPDATE denied`) | 기능은 `employees.name` 등을 고치는데 `db/grants.sql` 은 `title, dept` 만 허용, 나머지는 DB 마다 `migrate_hr_card_edit.py` 를 따로 실행해야 했음 | `grants.sql` 에 필요한 열만 추가(최소 권한), 이 저장소 `mysql-init/30-hr-card-edit.sh` 로 새 DB 에도 적용 | 새 설치에서도 인사카드 수정 정상 |
+| 25 | SQL 정적 검사 실패(상수 문자열 아님) | `IN (` + 자리표시자 이어붙이기·동적 OR 조건 | `JSON_TABLE` 로 값 배열을 넘기는 상수 SQL 로 교체 | 문자열 결합 SQL 0건 |
+| 26 | 시험이 운영 데이터에 영향받고 찌꺼기를 남김 | 시험이 운영 DB(`nexus`)를 읽음, e2e 정리를 DELETE 권한 없는 앱 계정으로 해 실패 | `test.sh` 가 `nexus_test` 고정, 정리는 root 연결 | 반복 실행해도 결과 동일 |
 
 ## 2. 리허설·본발표 피드백 반영
 
@@ -45,7 +50,7 @@
 1. **진짜 pfSense 를 트래픽 경로에 연결** — 지금은 컨테이너 `edge` 가 대신하고 VM 은 따로 있습니다(Apple 칩 x86 에뮬레이션 + 공격 PC 출발지 IP 구분 문제).
 2. **IP 자동 차단 예외·승인 정책을 설정으로 정리** — R1 승인 API 가 포털 dry-run 에서만 열려 `live` 와 동시에 못 쓰는 제약을 분리(팀 포털 코드 변경 필요).
 3. **IP 자동 차단 예외 목록 정리** — 템플릿의 고정 목록(.10/.11/.14/.15)에 시연용 공격 PC(.11)가 들어 있어 자동 차단이 안 됩니다. 환경 변수로 분리하고 싶습니다.
-4. 팀 시험 14개 실패를 **최신 코드에 맞게 고쳐 PR** 로 올리기.
+4. 개인 포크 브랜치의 수정(시험 15개 + 결함 3종)을 **팀 저장소에 PR 로 제안**하기(팀과 먼저 상의).
 5. 위협 점수 임계값(80점)과 주간/야간 정책을 데이터(실제 오탐률)로 조정.
 
 ## 4. 느낀 점
